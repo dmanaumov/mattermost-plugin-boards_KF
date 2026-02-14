@@ -15,6 +15,11 @@ import (
 	"github.com/mattermost/mattermost/server/public/shared/mlog"
 )
 
+// isSystemMyTasksBoard проверяет, является ли доска системной доской "МОИ ЗАДАЧИ"
+func isSystemMyTasksBoard(boardID string) bool {
+	return len(boardID) > 17 && boardID[:17] == "system-my-tasks-"
+}
+
 func (a *API) registerBoardsRoutes(r *mux.Router) {
 	r.HandleFunc("/teams/{teamID}/boards", a.sessionRequired(a.handleGetBoards)).Methods("GET")
 	r.HandleFunc("/boards", a.sessionRequired(a.handleCreateBoard)).Methods("POST")
@@ -324,6 +329,12 @@ func (a *API) handlePatchBoard(w http.ResponseWriter, r *http.Request) {
 	//     schema:
 	//       "$ref": "#/definitions/ErrorResponse"
 
+	// Защита системной доски "МОИ ЗАДАЧИ"
+	if isSystemMyTasksBoard(boardID) {
+		a.errorResponse(w, r, model.NewErrBadRequest("system board cannot be modified"))
+		return
+	}
+
 	boardID := mux.Vars(r)["boardID"]
 	if _, err := a.app.GetBoard(boardID); err != nil {
 		a.errorResponse(w, r, err)
@@ -424,6 +435,12 @@ func (a *API) handleDeleteBoard(w http.ResponseWriter, r *http.Request) {
 
 	boardID := mux.Vars(r)["boardID"]
 	userID := getUserID(r)
+
+	// Защита системной доски "МОИ ЗАДАЧИ"
+	if isSystemMyTasksBoard(boardID) {
+		a.errorResponse(w, r, model.NewErrBadRequest("system board cannot be deleted"))
+		return
+	}
 
 	// Check if board exists
 	if _, err := a.app.GetBoard(boardID); err != nil {
