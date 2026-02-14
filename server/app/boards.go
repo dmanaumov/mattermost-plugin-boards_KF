@@ -222,8 +222,53 @@ func (a *App) DuplicateBoard(boardID, userID, toTeam string, asTemplate bool) (*
 	return bab, members, err
 }
 
-func (a *App) GetBoardsForUserAndTeam(userID, teamID string, includePublicBoards bool) ([]*model.Board, error) {
-	return a.store.GetBoardsForUserAndTeam(userID, teamID, includePublicBoards)
+//  Старая релаизация метода. Сейчас добавляю свою доску "МОИ ЗАДАЧИ"
+//func (a *App) GetBoardsForUserAndTeam(userID, teamID string, includePublicBoards bool) ([]*model.Board, error) {
+//	return a.store.GetBoardsForUserAndTeam(userID, teamID, includePublicBoards)
+//}
+
+func (a *App) GetBoardsForUserAndTeam(userID, teamID string) ([]*model.Board, error) {
+    boards, err := a.store.GetBoardsForUserAndTeam(userID, teamID)
+    if err != nil {
+        return nil, err
+    }
+    
+    // Проверяем, есть ли доска "МОИ ЗАДАЧИ"
+    myTasksBoard := a.ensureMyTasksBoard(userID, teamID)
+    if myTasksBoard != nil {
+        // Добавляем в начало списка
+        boards = append([]*model.Board{myTasksBoard}, boards...)
+    }
+    
+    return boards, nil
+}
+
+func (a *App) ensureMyTasksBoard(userID, teamID string) *model.Board {
+    boardID := "system-my-tasks-" + userID
+    
+    // Пытаемся получить существующую доску
+    board, err := a.store.GetBoard(boardID)
+    if err == nil {
+        return board
+    }
+    
+    // Если нет - создаём
+    board = &model.Board{
+        ID:          boardID,
+        Title:       "МОИ ЗАДАЧИ",
+        TeamID:      teamID,
+        Type:        model.BoardTypePrivate,
+        Properties:  map[string]interface{}{
+            "isSystemBoard": true,
+        },
+    }
+    
+    createdBoard, err := a.store.InsertBoard(board, userID)
+    if err != nil {
+        return nil
+    }
+    
+    return createdBoard
 }
 
 func (a *App) GetTemplateBoards(teamID, userID string) ([]*model.Board, error) {
