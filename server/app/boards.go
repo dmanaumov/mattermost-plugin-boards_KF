@@ -226,7 +226,7 @@ func (a *App) DuplicateBoard(boardID, userID, toTeam string, asTemplate bool) (*
 //func (a *App) GetBoardsForUserAndTeam(userID, teamID string, includePublicBoards bool) ([]*model.Board, error) {
 //	return a.store.GetBoardsForUserAndTeam(userID, teamID, includePublicBoards)
 //}
-
+/*
 func (a *App) GetBoardsForUserAndTeam(userID, teamID string) ([]*model.Board, error) {
     boards, err := a.store.GetBoardsForUserAndTeam(userID, teamID)
     if err != nil {
@@ -242,7 +242,24 @@ func (a *App) GetBoardsForUserAndTeam(userID, teamID string) ([]*model.Board, er
     
     return boards, nil
 }
-
+*/
+func (a *App) GetBoardsForUserAndTeam(userID, teamID string, includePublicBoards bool) ([]*model.Board, error) {
+    boards, err := a.store.GetBoardsForUserAndTeam(userID, teamID, includePublicBoards)
+    if err != nil {
+        return nil, err
+    }
+    
+    // Проверяем, есть ли доска "МОИ ЗАДАЧИ"
+    myTasksBoard := a.ensureMyTasksBoard(userID, teamID)
+    if myTasksBoard != nil {
+        // Добавляем в начало списка
+        boards = append([]*model.Board{myTasksBoard}, boards...)
+    }
+    
+    return boards, nil
+}
+//ИСходный метод создания доски МОИ ЗАДАЧИ
+/*
 func (a *App) ensureMyTasksBoard(userID, teamID string) *model.Board {
     boardID := "system-my-tasks-" + userID
     
@@ -265,6 +282,41 @@ func (a *App) ensureMyTasksBoard(userID, teamID string) *model.Board {
     
     createdBoard, err := a.store.InsertBoard(board, userID)
     if err != nil {
+        return nil
+    }
+    
+    return createdBoard
+}
+*/
+
+func (a *App) ensureMyTasksBoard(userID, teamID string) *model.Board {
+    boardID := "system-my-tasks-" + userID
+    
+    // Пытаемся получить существующую доску
+    board, err := a.store.GetBoard(boardID)
+    if err == nil {
+        return board
+    }
+    
+    // Если нет - создаём
+    board = &model.Board{
+        ID:          boardID,
+        Title:       "МОИ ЗАДАЧИ",
+        TeamID:      teamID,
+        Type:        model.BoardTypePrivate,
+        CreatedBy:   userID,
+        ModifiedBy:  userID,
+        Properties:  map[string]interface{}{
+            "isSystemBoard": true,
+        },
+    }
+    
+    // Вставляем доску напрямую в БД
+    createdBoard, err := a.store.InsertBoard(board, userID)
+    if err != nil {
+        a.logger.Error("Failed to create system 'МОИ ЗАДАЧИ' board", 
+            mlog.String("userID", userID), 
+            mlog.Err(err))
         return nil
     }
     
@@ -351,6 +403,14 @@ func (a *App) addBoardsToDefaultCategory(userID, teamID string, boards []*model.
 }
 
 func (a *App) PatchBoard(patch *model.BoardPatch, boardID, userID string) (*model.Board, error) {
+	
+	// Защита системной доски "МОИ ЗАДАЧИ" от изменения названия
+    if len(boardID) > 17 && boardID[:17] == "system-my-tasks-" {
+        if patch.Title != nil {
+            return nil, model.NewErrBadRequest("system board title cannot be modified")
+        }
+    }	
+	
 	var oldChannelID string
 	var isTemplate bool
 	var oldMembers []*model.BoardMember
@@ -486,6 +546,11 @@ func (a *App) broadcastTeamUsers(teamID, boardID string, boardType model.BoardTy
 }
 
 func (a *App) DeleteBoard(boardID, userID string) error {
+	// Защита системной доски "МОИ ЗАДАЧИ"
+    if len(boardID) > 17 && boardID[:17] == "system-my-tasks-" {
+        return model.NewErrBadRequest("system board cannot be deleted")
+    }
+	
 	board, err := a.store.GetBoard(boardID)
 	if model.IsErrNotFound(err) {
 		return nil
